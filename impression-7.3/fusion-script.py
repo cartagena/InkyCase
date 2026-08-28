@@ -21,7 +21,9 @@
 #    Utilities -> ADD-INS -> Scripts and Add-Ins -> Scripts -> "+" -> Create
 #    -> Python. Replace the generated .py with this file, select it, Run.
 #    Run it in an EMPTY design - it builds the frame from scratch rather than
-#    modifying an existing body.
+#    modifying an existing body. With EXPORT_STL = True (the default) it
+#    finishes by asking for an output folder and writing front.stl, back.stl,
+#    button.stl and stand.stl there.
 #
 #  Fusion's API works in centimetres. Everything below is millimetres.
 # ============================================================================
@@ -59,13 +61,38 @@ BORDER_TOP    = 10.40   # was 10.00 - the real border is 10.70; at 10.00 the
 WINDOW_LAP    =  0.50   # window undersized this much per side, so the bezel
                         # crops the active area instead of exposing a sliver
                         # of dead panel
+FILLET_OUTER    =  2.00 # radius on the frame's 4 vertical corners (full
+                        # height) AND its front (Z=0, exterior) face's outer
+                        # edge, and on the cover's 4 vertical corners (full
+                        # thickness) too, matching the frame's column - but
+                        # NOT the cover's own face fillet, see
+                        # FILLET_COVER_FACE. Matches the printed/exported
+                        # front.stl and back.stl. Bigger than the R1 once
+                        # suggested for hand-finishing; that suggestion is
+                        # superseded now this is parametric.
+FILLET_COVER_FACE = 1.00 # radius on ONLY the cover's back (Z=CASE_H,
+                        # exterior) face's outer edge - not its vertical
+                        # corners, which use the bigger FILLET_OUTER instead
+                        # (matching the frame's column), and not its front
+                        # (Z=FRAME_H) face, which is the hidden mating face
+                        # against the frame and stays sharp. Matched from
+                        # back.stl.
+CHAMFER_WINDOW  =  1.50 # equal-distance chamfer around the window's front
+                        # rim, also matched from front.stl
 
 # ---------------------------------------------------------------------------
 #  BOARD AND SWITCH
 # ---------------------------------------------------------------------------
 BOARD_W     = 174.20
 BOARD_D     = 123.20
-BOARD_T     =   1.60
+BOARD_T     =   1.60    # bare PCB only - NOT what PCB_REAR_Z is measured
+                        # from, see STACK_T
+STACK_T     =   2.90    # board + epaper glass module together, measured
+                        # directly on the assembled part - this is what
+                        # actually spans from the pocket floor to the
+                        # board's own rear face (PCB_REAR_Z). Using BOARD_T
+                        # alone there undersized PCB_REAR_Z - and therefore
+                        # WALL_TOP, the cavity behind the board - by 1.30 mm.
 BOARD_GAP   =   0.50    # board edge -> pocket wall, per side
 SW_ACROSS   =   3.40    # switch body PERPENDICULAR to the board edge
 SW_ALONG    =   4.20
@@ -78,7 +105,27 @@ BUTTON_SIDE = 'right'   # looking at the back of the case
 #  LEVER  (rev 4)
 # ---------------------------------------------------------------------------
 LEVER_W     = 10.00
-PIVOT_Z     =  4.60
+PIVOT_Z     =  4.60    # REVERTED - do not "fix" the lever ratio by moving
+                        # this. It was dropped to 3.30 to compensate for the
+                        # STACK_T fix (see CLAUDE.md's PIVOT_Z / STACK_T open
+                        # item), which seemed right by the numbers (it
+                        # restores gz(PIVOT_Z) and the 1.189:1 ratio) but
+                        # breaks the lever sketch: ARM_Z0 (tied to PIVOT_Z)
+                        # and NUB_Z (tied to SW_CAP_Z) are BOTH PCB-anchored
+                        # via gz() already, and their relative spacing
+                        # (ARM_Z0 above NUB_Z) was already correct and
+                        # untouched by the STACK_T fix. Shifting PIVOT_Z
+                        # alone pushes ARM_Z0 below NUB_Z, flipping an edge
+                        # in the 30-point PROFILE outline and making it
+                        # self-intersect - this is exactly what tripped the
+                        # "Expected 3 lever profiles" RuntimeError here.
+                        # OpenSCAD has no equivalent check and would instead
+                        # silently produce a garbage/self-intersecting
+                        # profile with no error at all - always sanity-check
+                        # a PIVOT_Z change against a Fusion build, not just a
+                        # clean OpenSCAD render. The lever ratio is back to
+                        # 0.943:1 until a real fix is found on the BUTTON_Z
+                        # side instead (see the open item).
 FLEX_LEN    =  2.00
 FLEX_T      =  0.45
 FLEX_W      =  6.00
@@ -100,6 +147,32 @@ POCKET_D    =  3.25     # into the wall's inner face
 LIP_X       =  0.60
 LIP_Y       =  0.90
 CLR         =  0.20
+TONGUE_SWEEP_CLR = 0.50 # extra clearance recessing the slot tongue away
+                        # from the lever, on top of CLR - printed and
+                        # tested: with the cover on, the lever jammed solid
+                        # (worked fine with the cover off). CLR (0.20) only
+                        # clears the lever's REST-position footprint; the
+                        # head sweeps through an arc as it rotates, and that
+                        # swept envelope reaches past HEAD_Z1 (which lands
+                        # exactly at FRAME_H, flush with where the tongue
+                        # starts) into the tongue's own territory. Unverified
+                        # and a moderate first guess on purpose - the
+                        # tongue's whole available span is only 1.55 mm, so
+                        # this already gives up a third of it; if the lever
+                        # still jams, that's evidence the tongue isn't the
+                        # only culprit, not just "not recessed enough" -
+                        # don't keep cranking this number up without
+                        # re-checking that assumption. Retest and retune
+                        # after printing.
+
+# ---------------------------------------------------------------------------
+#  EXPORT
+#    One STL per component, written after the whole design is built. A single
+#    "Button lever" component is exported once - the 4 occurrences of it in
+#    the design share that same geometry, so exporting all 4 would just be
+#    4 copies of one file.
+# ---------------------------------------------------------------------------
+EXPORT_STL  = True      # False to just build the design and skip export
 
 # ---------------------------------------------------------------------------
 #  FASTENERS  (M2.5 self-tappers - an M3 needs a 6 mm wall, you have 5)
@@ -175,7 +248,7 @@ CASE_W      = POCKET_X1 + WALL_T                      # 185.20
 CASE_D      = POCKET_Y1 + WALL_T_TOP                  # 134.20
 CABLE_X     = CASE_W * CABLE_X_FRAC
 POCKET_FLR  = BEZEL_LIP                        # 1.50
-PCB_REAR_Z  = BEZEL_LIP + BOARD_T              # 3.10
+PCB_REAR_Z  = BEZEL_LIP + STACK_T              # 4.40
 DISP_X0     = POCKET_X0 + BOARD_GAP + BORDER_SIDE   + WINDOW_LAP
 DISP_X1     = POCKET_X1 - BOARD_GAP - BORDER_SIDE   - WINDOW_LAP
 DISP_Y0     = POCKET_Y0 + BOARD_GAP + BORDER_BOTTOM + WINDOW_LAP
@@ -415,6 +488,129 @@ def stadium_z(comp, cx, cy, length, width, z0, z1, op, name, participants=None):
     return _extrude_z(comp, coll, z0, z1, op, name, participants)
 
 
+def find_flat_face(body, z):
+    """The body's planar face lying flat at Z = z (either outward normal),
+    found by plane geometry rather than edge/face index - the lever sketch's
+    own gotcha note is that index-based selection breaks the moment a
+    dimension changes, and that applies here too."""
+    for face in body.faces:
+        geom = face.geometry
+        if (isinstance(geom, adsk.core.Plane)
+                and abs(geom.origin.z - z * MM) < 1e-6
+                and abs(abs(geom.normal.z) - 1.0) < 1e-6):
+            return face
+    raise RuntimeError('Could not find the Z={} face.'.format(z))
+
+
+def add_one_fillet(comp, edges, radius, label):
+    fillet_in = comp.features.filletFeatures.createInput()
+    fillet_in.addConstantRadiusEdgeSet(
+        edges, adsk.core.ValueInput.createByReal(radius * MM), True)
+    try:
+        comp.features.filletFeatures.add(fillet_in)
+    except RuntimeError as e:
+        raise RuntimeError('{}: fillet compute failed - {}'.format(label, e))
+
+
+def add_box_edge_fillet(comp, body, w, d, z0, z1, vert_radius, face_radius,
+                         cap_z, label):
+    """Round `body`'s 4 vertical edges (full Z=z0..z1 height) to
+    `vert_radius`, then the outer perimeter loop of ONLY the flat face at
+    Z=`cap_z` (must be z0 or z1) to `face_radius` (equal to `vert_radius` for
+    the frame; smaller for the cover - see add_back_cover_finishing),
+    blending into that one face. The other flat face is left alone -
+    untouched, sharp, flush. Only the exterior-facing face of each part gets
+    the face fillet at all; the hidden mating face between the frame and the
+    cover does not (see build_front_frame()'s call for the frame,
+    add_back_cover_finishing() for the cover). An earlier version filleted
+    both flat faces (and, briefly, used one uniform radius on the cover
+    instead of a bigger one on its verticals) - rejected on sight against
+    the real part, see CLAUDE.md.
+
+    TWO separate fillet features, in that order (verticals, then the one
+    face loop), not one combined edge set. Fusion's blend solver fails
+    ("ASM_BL_CAP_COMPLEX ... could not be created at the requested size")
+    the moment the vertical edges and a face loop share a feature - the
+    vertical fillet has to run first and be its own feature, since the face
+    loop needs to be re-found afterward anyway (the vertical fillet reshapes
+    the body, adding the corner arcs the loop now includes). Edges are
+    gathered by geometry - plane/line coordinates and the box's known outer
+    (x, y) corners - never by index."""
+    if cap_z not in (z0, z1):
+        raise RuntimeError(
+            '{}: cap_z ({}) must be z0 ({}) or z1 ({}).'
+            .format(label, cap_z, z0, z1))
+
+    corners = [(0, 0), (w, 0), (0, d), (w, d)]
+    height = (z1 - z0) * MM
+    vert_edges = adsk.core.ObjectCollection.create()
+    for edge in body.edges:
+        geom = edge.geometry
+        if not isinstance(geom, adsk.core.Line3D):
+            continue
+        sp, ep = edge.startVertex.geometry, edge.endVertex.geometry
+        if not (abs(sp.x - ep.x) < 1e-6 and abs(sp.y - ep.y) < 1e-6
+                and abs(abs(sp.z - ep.z) - height) < 1e-6):
+            continue
+        if any(abs(sp.x - cx * MM) < 1e-6 and abs(sp.y - cy * MM) < 1e-6
+               for cx, cy in corners):
+            vert_edges.add(edge)
+    if vert_edges.count != 4:
+        raise RuntimeError(
+            '{}: expected 4 vertical corner edges, found {}.'
+            .format(label, vert_edges.count))
+    add_one_fillet(comp, vert_edges, vert_radius, label + ' (verticals)')
+
+    outer = [l for l in find_flat_face(body, cap_z).loops if l.isOuter]
+    if len(outer) != 1:
+        raise RuntimeError(
+            '{}: expected exactly one outer loop at Z={}, found {}.'
+            .format(label, cap_z, len(outer)))
+    face_edges = adsk.core.ObjectCollection.create()
+    for edge in outer[0].edges:
+        face_edges.add(edge)
+    add_one_fillet(comp, face_edges, face_radius, label + ' (face)')
+
+
+def add_window_chamfer(comp, body):
+    """1.5 mm equal-distance chamfer around the window's front rim. Split out
+    from the outer-edge fillet (which used to be here too, see
+    add_box_edge_fillet's docstring) because that fillet now has to run
+    against the raw frame blank, before the button slots/pockets/screw holes
+    are cut - but the window loop doesn't exist until after the window is
+    cut. So build_front_frame() calls the fillet first (right after making
+    the blank) and this chamfer last (after every cut, window included)."""
+    face = find_flat_face(body, 0)
+    inner_loops = [l for l in face.loops if not l.isOuter]
+    if len(inner_loops) != 1:
+        raise RuntimeError(
+            'Front finishing: expected 1 window loop after the outer '
+            'fillet, found {}.'.format(len(inner_loops)))
+
+    window_edges = adsk.core.ObjectCollection.create()
+    for edge in inner_loops[0].edges:
+        window_edges.add(edge)
+    chamfer_in = comp.features.chamferFeatures.createInput(
+        window_edges, True)
+    chamfer_in.setToEqualDistance(
+        adsk.core.ValueInput.createByReal(CHAMFER_WINDOW * MM))
+    comp.features.chamferFeatures.add(chamfer_in)
+
+
+def add_back_cover_finishing(comp, body):
+    """Fillet the cover's 4 vertical corners to FILLET_OUTER (2 mm, matching
+    the frame's corner) for the full BACK_T thickness, and ONLY the back
+    (Z=CASE_H, exterior) face's outer loop to the smaller FILLET_COVER_FACE
+    (1 mm). The front (Z=FRAME_H) face is the hidden mating face against the
+    frame and stays sharp - see add_box_edge_fillet's docstring for why
+    (both flat faces filleted, or a uniform radius on the cover, were tried
+    and rejected against the real part). Matched from a printed/exported
+    back.stl (see CLAUDE.md)."""
+    add_box_edge_fillet(comp, body, CASE_W, CASE_D, FRAME_H, CASE_H,
+                         FILLET_OUTER, FILLET_COVER_FACE, CASE_H,
+                         'Back cover finishing')
+
+
 def extrude_sym_y(comp, prof, width, op, name, participants=None):
     exts = comp.features.extrudeFeatures
     inp = exts.createInput(prof, op)
@@ -435,6 +631,22 @@ def build_front_frame(comp):
                   NEW, 'Frame blank').bodies.item(0)
     body.name = 'Front frame'
     P = [body]
+
+    # Outer-edge fillet FIRST, against the plain blank, before any other cut
+    # or join touches this body. Only the front (Z=0, exterior) face gets a
+    # face fillet - the back (Z=FRAME_H) face is the hidden mating face
+    # against the cover and stays sharp (see add_box_edge_fillet's
+    # docstring). Filleting first also sidesteps a real failure: the button
+    # slots cut below break through both Z=FRAME_H and the right wall's
+    # exterior surface (see the "Button slot" cut a few lines down), so a
+    # fillet attempted on that face loop *after* the cuts hits 4 notches in
+    # what should be a plain rectangle and Fusion's solver can't compute a
+    # clean radius around them (ASM_BL_CAP_COMPLEX). Filleting the untouched
+    # blank first avoids that entirely - moot now that this only fillets the
+    # front face anyway, but keep the ordering, it's the safe default for
+    # any future outer-edge feature added here.
+    add_box_edge_fillet(comp, body, CASE_W, CASE_D, 0, FRAME_H,
+                         FILLET_OUTER, FILLET_OUTER, 0, 'Front finishing')
 
     # PCB pocket, open to the rear
     rect_z(comp, POCKET_X0, POCKET_Y0, POCKET_X1, POCKET_Y1,
@@ -477,6 +689,8 @@ def build_front_frame(comp):
     for j, (sx, sy) in enumerate(SCREW_POS):
         cyl_z(comp, sx, sy, PILOT_D, FRAME_H - SCREW_DEPTH, FRAME_H + 1,
               CUT, 'Screw pilot {}'.format(j + 1), P)
+
+    add_window_chamfer(comp, body)
 
     return body
 
@@ -528,13 +742,23 @@ def build_back_cover(comp):
     body.name = 'Back cover'
     P = [body]
 
+    # Outer-edge fillet FIRST, against the plain blank - same reasoning as
+    # the frame's own fillet-before-cuts ordering (see build_front_frame):
+    # keeps the flat-face outer loops simple rectangles for the fillet
+    # solver, before the tongues/bosses/cable-exit cut touch that geometry.
+    add_back_cover_finishing(comp, body)
+
     # Tongues that fill the top of each button slot flush with the wall's
     # OUTER face. Without these the button head only bears on the slot's lower
-    # edge and the button tilts when you press it.
+    # edge and the button tilts when you press it. Recessed by
+    # TONGUE_SWEEP_CLR beyond the usual CLR - the lever head sweeps through
+    # an arc as it rotates, not just its rest footprint, and CLR alone let
+    # it jam solid against this tongue (printed and tested: fine with the
+    # cover off, dead with it on).
     for i, by in enumerate(BUTTON_Y):
         rect_z(comp, gx(WALL_OUT), by - (SLOT_W / 2.0 - 0.15),
                gx(WALL_IN), by + (SLOT_W / 2.0 - 0.15),
-               gz(SHAFT_Z1) + CLR, FRAME_H, JOIN,
+               gz(SHAFT_Z1) + CLR + TONGUE_SWEEP_CLR, FRAME_H, JOIN,
                'Slot tongue {}'.format(i + 1), P)
 
     # Bosses that give the stand screws something to bite into - the cover on
@@ -649,6 +873,17 @@ def build_stand(comp):
     return body
 
 
+def export_stls(app, design, out_dir, parts):
+    """One STL per (name, component) pair in `parts`, written to `out_dir`."""
+    export_mgr = design.exportManager
+    for name, comp in parts:
+        path = '{}/{}.stl'.format(out_dir, name)
+        stl_options = export_mgr.createSTLExportOptions(comp, path)
+        stl_options.meshRefinement = (
+            adsk.fusion.MeshRefinementSettings.MeshRefinementMedium)
+        export_mgr.execute(stl_options)
+
+
 # ---------------------------------------------------------------------------
 #  Entry point
 # ---------------------------------------------------------------------------
@@ -671,8 +906,11 @@ def run(context):
             occ.component.name = name
             return occ.component
 
-        build_front_frame(new_comp('Front frame'))
-        build_back_cover(new_comp('Back cover'))
+        front_comp = new_comp('Front frame')
+        build_front_frame(front_comp)
+
+        back_comp = new_comp('Back cover')
+        build_back_cover(back_comp)
 
         lever = new_comp('Button lever', 0.0, BUTTON_Y[0], 0.0)
         build_lever(lever)
@@ -681,7 +919,19 @@ def run(context):
             m.translation = adsk.core.Vector3D.create(0, by * MM, 0)
             root.occurrences.addExistingComponent(lever, m)
 
-        build_stand(new_comp('Stand'))
+        stand_comp = new_comp('Stand')
+        build_stand(stand_comp)
+
+        if EXPORT_STL:
+            folder_dlg = ui.createFolderDialog()
+            folder_dlg.title = 'Choose a folder for the four STL exports'
+            if folder_dlg.showDialog() == adsk.core.DialogResults.DialogOK:
+                export_stls(app, design, folder_dlg.folder, [
+                    ('front', front_comp),
+                    ('back', back_comp),
+                    ('button', lever),
+                    ('stand', stand_comp),
+                ])
 
         ui.messageBox(
             'Built the full case.\n\n'
@@ -747,12 +997,21 @@ def run(context):
 #                 on its side instead would leave the spine as an island.
 #
 #  THINGS THIS SCRIPT DELIBERATELY LEAVES TO YOU
-#    Fillets and chamfers. Edge selection by index breaks the moment a
-#    dimension changes, so it is safer to add them by hand: R0.4 at the lever
-#    arm's thickness step, 0.3 around the nub's bottom face, 1 mm on the
-#    frame's outer edges, and a 0.4 mm relief groove around the bottom of each
-#    wall pocket so the nozzle's inside-corner fillet cannot hold the lever's
-#    foot proud. That last one directly sets the 0.15 mm rest gap.
+#    Most fillets and chamfers. add_box_edge_fillet() (called from
+#    build_front_frame() and add_back_cover_finishing(), against each blank
+#    before any other cut) and add_window_chamfer() DO model the frame's 4
+#    vertical corners plus its front (Z=0, exterior) face, and the cover's 4
+#    vertical corners plus its back (Z=CASE_H, exterior) face - both
+#    FILLET_OUTER/FILLET_COVER_FACE respectively, and both parts' hidden
+#    mating face left sharp on purpose - and the window's front rim
+#    (CHAMFER_WINDOW, 1.5 mm) parametrically, selected by face/loop/edge
+#    geometry (not index) so they survive a dimension change - matched from
+#    printed front.stl/back.stl
+#    exports. Still left to hand-finishing: R0.4 at the lever arm's thickness
+#    step, 0.3 around the nub's bottom face, and a 0.4 mm relief groove
+#    around the bottom of each wall pocket so the nozzle's inside-corner
+#    fillet cannot hold the lever's foot proud. That last one directly sets
+#    the 0.15 mm rest gap.
 #
 #    Pi mounting. The cavity behind the PCB is only 14.90 mm deep, which fits
 #    a Zero on the GPIO header and nothing larger. Standoffs are not modelled

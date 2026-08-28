@@ -247,7 +247,13 @@ can re-derive something themselves without re-reading the source image.
   combined) is confirmed, but how much of that is above vs. below the
   module isn't.
 - **`6.00` callout** (§10) — location noted, meaning not determined.
-- **PCB thickness** — not stated anywhere in these sources.
+- **PCB thickness** — not stated anywhere in these sources. Bare PCB is
+  1.60 mm (a typical assumption, `BOARD_T` in both scripts - itself
+  unconfirmed by any of the sources above). 🟢 The board + epaper glass
+  module *stack* (what actually determines `PCB_REAR_Z` - the module sits
+  between the pocket floor and the PCB, so its thickness adds to the bare
+  board's) measures 2.90 mm, per direct caliper measurement on the
+  assembled part by the project owner. See `STACK_T` in both scripts.
 - **Standoff screw grid's row (Y) position** (§7) — the `47.00` / `96.00`
   callouts are read as "distance from the bottom edge," matching how
   `26.70` was confirmed for X, but that Y-axis orientation itself isn't

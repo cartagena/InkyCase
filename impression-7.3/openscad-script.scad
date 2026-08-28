@@ -62,13 +62,48 @@ BORDER_TOP    = 10.40;  // was 10.00 - the real border is 10.70; at 10.00 the
 WINDOW_LAP    =  0.50;  // window undersized this much per side, so the bezel
                         // crops the active area instead of exposing a sliver
                         // of dead panel
+FILLET_OUTER    = 2.00; // radius on the frame's 4 vertical corners (full
+                        // height) AND its front (Z=0, exterior) face's
+                        // outer edge, and on the cover's 4 vertical corners
+                        // (full thickness) too, matching the frame's column
+                        // - but NOT the cover's own face fillet, see
+                        // FILLET_COVER_FACE. Matches the printed/exported
+                        // front.stl and back.stl. Bigger than the R1 once
+                        // suggested for hand-finishing; that suggestion is
+                        // superseded now this is parametric.
+FILLET_COVER_FACE = 1.00; // radius on ONLY the cover's back (Z=CASE_H,
+                        // exterior) face's outer edge - not its vertical
+                        // corners, which use the bigger FILLET_OUTER
+                        // instead (matching the frame's column), and not
+                        // its front (Z=FRAME_H) face, which is the hidden
+                        // mating face against the frame and stays sharp.
+                        // Matched from back.stl.
+FILLET_JOIN_LAP =  0.02; // the cover's Minkowski-rounded blank (rounded_box())
+                        // is a curved-and-clipped mesh even on its "flat"
+                        // Z=FRAME_H face - a JOIN feature ending exactly at
+                        // FRAME_H only touches it along a 2D plane, and CGAL
+                        // leaves that as two merely-touching solids instead
+                        // of fusing them (checked: OpenSCAD reports 2 extra
+                        // "Volumes" per such feature). Every JOIN into the
+                        // cover blank (tongues, bosses, PCB posts) needs to
+                        // reach this far past FRAME_H to get genuine 3D
+                        // overlap instead of a knife-edge touch.
+CHAMFER_WINDOW  = 1.50; // equal-distance chamfer around the window's front
+                        // rim, also matched from front.stl
 
 // ---------------------------------------------------------------------------
 //  BOARD AND SWITCH
 // ---------------------------------------------------------------------------
 BOARD_W     = 174.20;
 BOARD_D     = 123.20;
-BOARD_T     =   1.60;
+BOARD_T     =   1.60;   // bare PCB only - NOT what PCB_REAR_Z is measured
+                        // from, see STACK_T
+STACK_T     =   2.90;   // board + epaper glass module together, measured
+                        // directly on the assembled part - this is what
+                        // actually spans from the pocket floor to the
+                        // board's own rear face (PCB_REAR_Z). Using BOARD_T
+                        // alone there undersized PCB_REAR_Z - and therefore
+                        // WALL_TOP, the cavity behind the board - by 1.30 mm.
 BOARD_GAP   =   0.50;   // board edge -> pocket wall, per side
 SW_ACROSS   =   3.40;   // switch body PERPENDICULAR to the board edge
 SW_ALONG    =   4.20;
@@ -81,7 +116,27 @@ BUTTON_SIDE = "right";  // looking at the back of the case
 //  LEVER  (rev 4)
 // ---------------------------------------------------------------------------
 LEVER_W     = 10.00;
-PIVOT_Z     =  4.60;
+PIVOT_Z     =  4.60;   // REVERTED - do not "fix" the lever ratio by moving
+                        // this. It was dropped to 3.30 to compensate for the
+                        // STACK_T fix (see CLAUDE.md's PIVOT_Z / STACK_T open
+                        // item), which seemed right by the numbers (it
+                        // restores gz(PIVOT_Z) and the 1.189:1 ratio) but
+                        // breaks the lever sketch: ARM_Z0 (tied to PIVOT_Z)
+                        // and NUB_Z (tied to SW_CAP_Z) are BOTH PCB-anchored
+                        // via gz() already, and their relative spacing
+                        // (ARM_Z0 above NUB_Z) was already correct and
+                        // untouched by the STACK_T fix. Shifting PIVOT_Z
+                        // alone pushes ARM_Z0 below NUB_Z, flipping an edge
+                        // in the 30-point PROFILE outline and making it
+                        // self-intersect (Fusion's "expected 3 lever
+                        // profiles" check catches this and raises
+                        // RuntimeError; OpenSCAD would instead silently
+                        // produce a garbage/self-intersecting profile with
+                        // no error at all - always sanity-check a PIVOT_Z
+                        // change against the Fusion build, not just a clean
+                        // OpenSCAD render). The lever ratio is back to
+                        // 0.943:1 until a real fix is found on the BUTTON_Z
+                        // side instead (see the open item).
 FLEX_LEN    =  2.00;
 FLEX_T      =  0.45;
 FLEX_W      =  6.00;
@@ -103,6 +158,23 @@ POCKET_D    =  3.25;    // into the wall's inner face
 LIP_X       =  0.60;
 LIP_Y       =  0.90;
 CLR         =  0.20;
+TONGUE_SWEEP_CLR = 0.50; // extra clearance recessing the slot tongue away
+                        // from the lever, on top of CLR - printed and
+                        // tested: with the cover on, the lever jammed solid
+                        // (worked fine with the cover off). CLR (0.20) only
+                        // clears the lever's REST-position footprint; the
+                        // head sweeps through an arc as it rotates, and that
+                        // swept envelope reaches past HEAD_Z1 (which lands
+                        // exactly at FRAME_H, flush with where the tongue
+                        // starts) into the tongue's own territory. Unverified
+                        // and a moderate first guess on purpose - the
+                        // tongue's whole available span is only 1.55 mm, so
+                        // this already gives up a third of it; if the lever
+                        // still jams, that's evidence the tongue isn't the
+                        // only culprit, not just "not recessed enough" -
+                        // don't keep cranking this number up without
+                        // re-checking that assumption. Retest and retune
+                        // after printing.
 
 // ---------------------------------------------------------------------------
 //  FASTENERS  (M2.5 self-tappers - an M3 needs a 6 mm wall, you have 5)
@@ -177,7 +249,7 @@ CASE_W      = POCKET_X1 + WALL_T;                      // 185.20
 CASE_D      = POCKET_Y1 + WALL_T_TOP;                  // 134.20
 CABLE_X     = CASE_W * CABLE_X_FRAC;
 POCKET_FLR  = BEZEL_LIP;                               // 1.50
-PCB_REAR_Z  = BEZEL_LIP + BOARD_T;                     // 3.10
+PCB_REAR_Z  = BEZEL_LIP + STACK_T;                     // 4.40
 DISP_X0     = POCKET_X0 + BOARD_GAP + BORDER_SIDE   + WINDOW_LAP;
 DISP_X1     = POCKET_X1 - BOARD_GAP - BORDER_SIDE   - WINDOW_LAP;
 DISP_Y0     = POCKET_Y0 + BOARD_GAP + BORDER_BOTTOM + WINDOW_LAP;
@@ -365,6 +437,118 @@ module cyl_z(cx, cy, d, z0, z1) {
     translate([cx, cy, z0]) cylinder(h = z1 - z0, d = d);
 }
 
+// A rounded rectangle w x d with corner radius r, centred at the origin.
+// hull() of 4 circles at the inset corners - same trick as stadium_z()'s
+// hull of 2 - rather than offset(), so this stays usable inside a 3D
+// context (minkowski/linear_extrude) without a 2D-only builtin in the way.
+module rounded_rect(w, d, r) {
+    if (r <= 0) {
+        square([w, d], center = true);
+    } else {
+        hull() {
+            for (sx = [-1, 1], sy = [-1, 1])
+                translate([sx * (w / 2 - r), sy * (d / 2 - r)]) circle(r = r);
+        }
+    }
+}
+
+// Same rounded rectangle, but positioned with its own corner at the origin
+// (0,0) to (w,d) instead of centred - for stacking directly on rect_z-style
+// (corner-at-origin) box coordinates.
+module rounded_rect_at_corner(w, d, r) {
+    if (r <= 0) {
+        square([w, d]);
+    } else {
+        hull() {
+            for (cx = [r, w - r], cy = [r, d - r])
+                translate([cx, cy]) circle(r = r);
+        }
+    }
+}
+
+// A w x d x h box: the 4 vertical corners rounded to `r_vert` for the FULL
+// height, and ONLY the Z=0 face's outer edge additionally filleted to
+// `r_face` (equal to `r_vert` by default - the frame's case), blending
+// smoothly into that one flat face. The Z=h face stays a plain, sharp,
+// flush cut - no taper, no inset, no radius. Only the exterior-facing flat
+// face of each part gets the blend; the hidden mating face between the
+// frame and the cover does not (see front_frame() / back_cover() for which
+// end that is per part).
+//
+// Two pieces, unioned:
+//   - z in [r_face, h]: a plain rounded-rect prism, corner radius r_vert,
+//     full w x d footprint - straight extrusion, so the vertical corners
+//     stay a constant-radius column all the way up to the sharp Z=h cut.
+//   - z in [0, r_face]: a Minkowski taper - an inset core (corner radius
+//     r_vert - r_face) Minkowski-summed with a sphere of radius r_face -
+//     that flares from that smaller radius, right at the tip (z=0), up to
+//     the full r_vert-radius rounded-rect footprint at z=r_face. On the
+//     cover, r_vert (2 mm, FILLET_OUTER, matching the frame's corner) is
+//     bigger than r_face (1 mm, FILLET_COVER_FACE) - this is what makes the
+//     visible column stay the frame's radius while only its exterior tip
+//     narrows the extra 1 mm into the flat face.
+// The two pieces meet at z=r_face with an identical cross section, so
+// there's no seam.
+//
+// An earlier version filleted BOTH flat faces (and, briefly, mixed two
+// different radii between the faces and the verticals while doing so) -
+// rejected on sight against the real part: it either bulged into a second,
+// separate-looking bead, or filleted the hidden mating face for no visible
+// benefit while making that face's outer loop harder for a real fillet
+// solver to match (see the ASM_BL_CAP_COMPLEX gotcha in CLAUDE.md). One cap,
+// full-height rounded verticals, is both what the part actually looks like
+// and the simpler shape to build.
+module rounded_box_bottom_cap(w, d, h, r_face, r_vert = undef) {
+    // Can't write `r_vert = r_face` in the parameter list - OpenSCAD 2021.01
+    // doesn't support a default value that references an earlier parameter.
+    rv     = (r_vert == undef) ? r_face : r_vert;
+    core_r = max(rv - r_face, 0);
+    union() {
+        translate([0, 0, r_face])
+            linear_extrude(height = h - r_face)
+                rounded_rect_at_corner(w, d, rv);
+        intersection() {
+            translate([r_face, r_face, r_face])
+                minkowski() {
+                    linear_extrude(height = 0.01, center = true)
+                        rounded_rect_at_corner(
+                            w - 2 * r_face, d - 2 * r_face, core_r);
+                    sphere(r = r_face);
+                }
+            cube([w, d, r_face]);
+        }
+    }
+}
+
+// Same shape, mirrored so the cap is at Z=h instead of Z=0 - for a part
+// whose exterior face is at the top of its local Z range (the back cover;
+// see back_cover()).
+module rounded_box_top_cap(w, d, h, r_face, r_vert = undef) {
+    translate([0, 0, h])
+        mirror([0, 0, 1])
+            rounded_box_bottom_cap(w, d, h, r_face, r_vert);
+}
+
+// Window cut with a `chamfer`-deep, equal-distance 45 deg bevel around the
+// front (z_front) rim, same as Fusion's chamferFeatures.setToEqualDistance().
+// The enlarged (chamfered) footprint is held constant below z_front purely so
+// the boolean cut is watertight through the front face - there is no case
+// material there for it to affect.
+module chamfered_window(x0, y0, x1, y1, z_front, z_deep, chamfer) {
+    union() {
+        translate([x0 - chamfer, y0 - chamfer, z_front - 1.0])
+            cube([x1 - x0 + 2 * chamfer, y1 - y0 + 2 * chamfer, 1.001]);
+        hull() {
+            translate([x0 - chamfer, y0 - chamfer, z_front])
+                cube([x1 - x0 + 2 * chamfer, y1 - y0 + 2 * chamfer, 0.001]);
+            translate([x0, y0, z_front + chamfer])
+                cube([x1 - x0, y1 - y0, 0.001]);
+        }
+        translate([x0, y0, z_front + chamfer])
+            cube([x1 - x0, y1 - y0, z_deep - (z_front + chamfer)]);
+    }
+}
+
 // Rounded slot: a rectangle plus a circle at each end. hull() of the two end
 // circles gives exactly that union (the straight sides are the common
 // tangents), so it is used directly instead of building rect + 2 circles.
@@ -405,8 +589,11 @@ module extrude_yz_sym_x(cx, pts_yz, width) {
 module front_frame() {
     difference() {
         union() {
-            // Frame blank
-            rect_z(0, 0, CASE_W, CASE_D, 0, FRAME_H);
+            // Frame blank: vertical corners rounded to FILLET_OUTER for the
+            // full height, and ONLY the front (Z=0, exterior) face's outer
+            // edge filleted the same radius. The back (Z=FRAME_H) face is
+            // the hidden mating face against the cover and stays sharp.
+            rounded_box_bottom_cap(CASE_W, CASE_D, FRAME_H, FILLET_OUTER);
 
             // Retaining lips: two ledges on each pocket's own side walls that
             // turn it into a T-channel. They clear the necked flexure by
@@ -427,9 +614,9 @@ module front_frame() {
             rect_z(POCKET_X0, POCKET_Y0, POCKET_X1, POCKET_Y1,
                    POCKET_FLR, FRAME_H + 1);
 
-            // Display window through the bezel lip
-            rect_z(DISP_X0, DISP_Y0, DISP_X1, DISP_Y1,
-                   -1.0, POCKET_FLR + 0.001);
+            // Display window through the bezel lip, chamfered at the front rim
+            chamfered_window(DISP_X0, DISP_Y0, DISP_X1, DISP_Y1,
+                              0.0, POCKET_FLR + 0.001, CHAMFER_WINDOW);
 
             for (by = BUTTON_Y) {
                 // Wall pocket. This IS the foot channel - same width, so
@@ -482,16 +669,28 @@ module button_levers() {
 module back_cover() {
     difference() {
         union() {
-            // Cover blank
-            rect_z(0, 0, CASE_W, CASE_D, FRAME_H, CASE_H);
+            // Cover blank: vertical corners rounded to FILLET_OUTER (2 mm,
+            // matching the frame's corner) for the full thickness, and ONLY
+            // the back (Z=CASE_H, exterior) face's outer edge filleted to
+            // the smaller FILLET_COVER_FACE (1 mm). The front (Z=FRAME_H)
+            // face is the hidden mating face against the frame and stays
+            // sharp.
+            translate([0, 0, FRAME_H])
+                rounded_box_top_cap(CASE_W, CASE_D, BACK_T,
+                                    FILLET_COVER_FACE, FILLET_OUTER);
 
             // Tongues that fill the top of each button slot flush with the
             // wall's OUTER face. Without these the button head only bears on
             // the slot's lower edge and the button tilts when pressed.
+            // Recessed by TONGUE_SWEEP_CLR beyond the usual CLR - the lever
+            // head sweeps through an arc as it rotates, not just its rest
+            // footprint, and CLR alone let it jam solid against this tongue
+            // (printed and tested: fine with the cover off, dead with it on).
             for (by = BUTTON_Y) {
                 rect_z(gx(WALL_OUT), by - (SLOT_W / 2.0 - 0.15),
                        gx(WALL_IN),  by + (SLOT_W / 2.0 - 0.15),
-                       gz(SHAFT_Z1) + CLR, FRAME_H);
+                       gz(SHAFT_Z1) + CLR + TONGUE_SWEEP_CLR,
+                       FRAME_H + FILLET_JOIN_LAP);
             }
 
             // Bosses that give the stand screws something to bite into -
@@ -511,7 +710,8 @@ module back_cover() {
                         " to ", by1, "). Move STAND_SCREW_Y or PAD_Y0."));
                 }
 
-                rect_z(bx0, by0, bx1, by1, FRAME_H - BOSS_T, FRAME_H);
+                rect_z(bx0, by0, bx1, by1,
+                       FRAME_H - BOSS_T, FRAME_H + FILLET_JOIN_LAP);
             }
 
             // PCB hold-downs. Square columns down to the board's rear face.
@@ -519,7 +719,7 @@ module back_cover() {
             for (p = PCB_POSTS) {
                 rect_z(p[0] - PCB_POST_W / 2.0, p[1] - PCB_POST_W / 2.0,
                        p[0] + PCB_POST_W / 2.0, p[1] + PCB_POST_W / 2.0,
-                       PCB_REAR_Z + PCB_POST_CLR, FRAME_H);
+                       PCB_REAR_Z + PCB_POST_CLR, FRAME_H + FILLET_JOIN_LAP);
             }
         }
         union() {
@@ -640,13 +840,16 @@ full_case();
 //                 vertical, so no supports.
 //
 //  THINGS THIS FILE DELIBERATELY LEAVES TO YOU (same list as the Fusion
-//  script - fillets/chamfers are still meant to be added post-hoc, in a
-//  slicer or by hand, not modelled parametrically here):
+//  script). Every outer edge of the frame (FILLET_OUTER, 2 mm uniform) and
+//  the cover (FILLET_COVER_FACE, 1 mm, on the two flat-face perimeters;
+//  FILLET_OUTER, 2 mm, on the 4 vertical corners) and the window's front rim
+//  (CHAMFER_WINDOW, 1.5 mm) ARE now modelled parametrically (rounded_box() /
+//  chamfered_window() above) - matched from printed front.stl / back.stl
+//  exports. Still left to a slicer or by hand:
 //    R0.4 at the lever arm's thickness step, 0.3 around the nub's bottom
-//    face, 1 mm on the frame's outer edges, and a 0.4 mm relief groove around
-//    the bottom of each wall pocket (this last one directly sets the
-//    0.15 mm REST_GAP - the nozzle's inside-corner fillet would otherwise
-//    hold the lever's foot proud).
+//    face, and a 0.4 mm relief groove around the bottom of each wall pocket
+//    (this last one directly sets the 0.15 mm REST_GAP - the nozzle's
+//    inside-corner fillet would otherwise hold the lever's foot proud).
 //
 //  PCB POSTS - the one number you will probably have to tune. See
 //  CLAUDE.md / the Fusion script header for the PCB_POST_CLR tuning notes;

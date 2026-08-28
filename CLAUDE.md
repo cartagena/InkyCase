@@ -61,10 +61,31 @@ everything except the part you want, then:
 openscad -o frame.stl impression-7.3/openscad-script.scad
 ```
 
+**Export all four parts as separate STLs in one go** — override the `SHOW_*`
+booleans from the command line with `-D` instead of editing the file, once per
+part:
+
+```bash
+openscad -D 'SHOW_FRAME=true;SHOW_COVER=false;SHOW_LEVERS=false;SHOW_STAND=false'  -o front.stl  impression-7.3/openscad-script.scad
+openscad -D 'SHOW_FRAME=false;SHOW_COVER=true;SHOW_LEVERS=false;SHOW_STAND=false'  -o back.stl   impression-7.3/openscad-script.scad
+openscad -D 'SHOW_FRAME=false;SHOW_COVER=false;SHOW_LEVERS=true;SHOW_STAND=false'  -o button.stl impression-7.3/openscad-script.scad
+openscad -D 'SHOW_FRAME=false;SHOW_COVER=false;SHOW_LEVERS=false;SHOW_STAND=true'  -o stand.stl  impression-7.3/openscad-script.scad
+```
+
+Note `button.stl` this way contains all 4 levers already positioned at their
+real `BUTTON_Y` locations (`button_levers()` loops over all of them) — unlike
+the Fusion export below, which exports the single `Button lever` component
+definition once, unpositioned duplicates included in the design as
+occurrences rather than as separate geometry.
+
 **Render the Fusion script**: Utilities → ADD-INS → Scripts and Add-Ins →
 Scripts → "+" → Create → Python, replace the generated file with
 `fusion-script.py`, select it, Run. Run it in an **empty** design — it builds
-the frame from scratch rather than modifying an existing body.
+the frame from scratch rather than modifying an existing body. With
+`EXPORT_STL = True` (the default, near the top of the script) it finishes by
+asking for an output folder and writing `front.stl`, `back.stl`, `button.stl`
+and `stand.stl` there — one file per component, mesh refinement Medium. Set
+`EXPORT_STL = False` to skip that and just build the design.
 
 **Check a parameter change against the arithmetic alone**, without rendering
 anything (useful for quick "did this clash-check still hold" questions on the
@@ -133,6 +154,20 @@ These were all wrong at some point and caused real failures.
 - **`POCKET_TOP` is derived from `SHAFT_Z0`,** not set independently. The wall
   pocket has to break *into* the button slot. When they were set separately they
   left a 0.05 mm web of wall and the lever's foot wouldn't pass.
+- **`BUTTON_Z` is anchored to `WALL_TOP` (i.e. to `FRAME_H`, the case's own
+  back edge), not to the PCB.** `PIVOT_Z`, by contrast, *is* anchored to the
+  PCB (it's a fixed lever-local constant, gz()-mapped straight off
+  `PCB_REAR_Z`). Because `gz(z) = PCB_REAR_Z + z` and
+  `BUTTON_Z = WALL_TOP - HEAD_Z/2 = (FRAME_H - PCB_REAR_Z) - HEAD_Z/2`, the
+  `PCB_REAR_Z` terms cancel inside `gz(BUTTON_Z...)` - the button head's
+  *absolute* Z position never moves when `PCB_REAR_Z` changes. This is
+  deliberate (the head has to reach flush to `FRAME_H` regardless of how
+  thick the PCB stack is) but it means `LIN` (`BUTTON_Z - PIVOT_Z`, the
+  pivot-to-button arm) is NOT a fixed lever geometry constant the way it
+  looks - it silently shrinks or grows opposite to `PCB_REAR_Z`, changing the
+  lever ratio. Don't change `PCB_REAR_Z` (or anything upstream of it, like
+  `STACK_T`) without re-checking the lever ratio afterward - see the
+  `STACK_T` open item below for the last time this bit.
 - **Everything on the back cover's inner face must clip to the pocket footprint**
   (`POCKET_X0..POCKET_X1`, `POCKET_Y0..POCKET_Y1`, minus `BOSS_CLR`). The frame's
   walls occupy the outer 5 mm at *every* Z. This is what broke the printed cover.
@@ -214,13 +249,13 @@ not to clamp it.** See the derivation rule above for which 4 and why.
 |---|---|
 | Case outer | 185.20 × 134.20 × 20.00 |
 | Walls | 5.00, bezel lip 1.50, frame 18.00, cover 2.00 |
-| PCB pocket | 175.20 × 124.20, floor at Z = 1.50, PCB rear face Z = 3.10 |
+| PCB pocket | 175.20 × 124.20, floor at Z = 1.50, PCB rear face Z = 4.40 |
 | Display window | 159.60 × 95.60 at (12.80, 22.20) |
 | Borders (board-relative) | `BORDER_SIDE` 6.80, `BORDER_BOTTOM` 16.20, `BORDER_TOP` 10.40 |
 | Borders (case-edge-relative) | 12.80 sides, 22.20 bottom, 16.40 top |
 | Buttons | Y = 34 / 58 / 82 / 106, right wall, switch centreline X = 175.40 |
-| Lever | ratio 1.189 : 1, travel 0.75 mm, ≈210 gf |
-| Cavity behind PCB | 14.90 mm (`WALL_TOP` = `FRAME_H` − `PCB_REAR_Z`) — Pi Zero only |
+| Lever | ratio 0.943 : 1, travel 0.75 mm — **changed from the tuned 1.189 : 1, ≈210 gf; unresolved**, see `STACK_T` open item below |
+| Cavity behind PCB | 13.60 mm (`WALL_TOP` = `FRAME_H` − `PCB_REAR_Z`) — Pi Zero only |
 | PCB posts | 4, `PCB_POST_IN` = 8.00 mm from the board edge |
 | Screws | 8 × M2.5 × 10 (cover→frame), 4 × M2.5 × 8 (stand→cover), Ø2.10 pilots |
 
@@ -231,11 +266,56 @@ not to clamp it.** See the derivation rule above for which 4 and why.
 - **Cover fit** — reprint and confirm it seats now the bosses are clipped. Also
   check the tongues: 10.10 mm in a 10.40 slot is only 0.15/side, and elephant's
   foot on the frame would bind them with the same symptom.
-- **Button feel** — completely untested. Print one lever plus a 40 mm section of
-  the button wall before committing to another frame. Tune `REST_GAP` then
-  `STOP_GAP`.
-- **PCB post length** — hard stop at Z = 3.10 made of stacked tolerances. Expect
-  to adjust `PCB_POST_CLR`, or use 0.5 mm foam pads with `PCB_POST_CLR = 0.40`.
+- **Button feel — tested, found broken with the cover on, partially fixed,
+  not re-verified.** Printed and tested: the lever worked fine with the cover
+  off but jammed completely (didn't move at all) with the cover on. Root
+  cause: `HEAD_Z1` (top of the button head) lands at exactly `FRAME_H` in
+  absolute case coordinates, flush with where the cover's slot tongue
+  starts — the tongue was only cleared against the lever's REST-position
+  footprint (`CLR`, 0.20 mm), not the arc the head actually sweeps through
+  when pressed. Added `TONGUE_SWEEP_CLR` (0.50 mm, on top of `CLR`) recessing
+  the tongue further back to give the sweep room — a moderate first guess,
+  not a measured fix. **Needs a reprint and retest of just the cover to
+  confirm.** If it's still jammed, that's evidence the tongue isn't the only
+  interference (or `TONGUE_SWEEP_CLR` needs to go higher than 0.50, up
+  against the tongue's ~1.55 mm total available span) — don't assume more of
+  the same fix will keep working. Once it moves, still need to tune
+  `REST_GAP` then `STOP_GAP` for feel, per the original plan below.
+- **PCB post length** — hard stop at Z = 4.40 (was 3.10, see the `STACK_T`
+  note above) made of stacked tolerances. Expect to adjust `PCB_POST_CLR`, or
+  use 0.5 mm foam pads with `PCB_POST_CLR = 0.40`.
+- **`STACK_T` correction changed the lever ratio to 0.943:1 (was 1.189:1) —
+  unresolved. Do NOT compensate via `PIVOT_Z`, that was tried and it breaks
+  the lever sketch.** `PCB_REAR_Z` was wrongly derived from `BOARD_T` (1.60,
+  bare PCB only); the real board + epaper glass module stack measures
+  2.90 mm (`STACK_T`). Fixing this shifted `PCB_REAR_Z` from 3.10 to 4.40 and
+  `WALL_TOP` (cavity behind the board) from 14.90 down to 13.60. Because
+  `BUTTON_Z` is deliberately anchored to `WALL_TOP` (i.e. to `FRAME_H`, not
+  to the PCB — see the derivation rule above), its *absolute* Z position
+  didn't move, but `PIVOT_Z` *is* anchored to the PCB, so the pivot-to-button
+  arm (`LIN`) got physically shorter and the lever ratio dropped — a real
+  mechanical change, not a rendering artifact.
+  **`PIVOT_Z` compensation was tried and reverted.** Moving `PIVOT_Z` from
+  4.60 to 3.30 does restore `gz(PIVOT_Z)` and the exact 1.189:1 ratio on
+  paper, but it broke the lever's 30-point `PROFILE` outline: `ARM_Z0`
+  (tied to `PIVOT_Z`) and `NUB_Z` (tied to `SW_CAP_Z`) are BOTH already
+  PCB-anchored via `gz()`, and their relative spacing (`ARM_Z0` above
+  `NUB_Z`) was already correct and untouched by the `STACK_T` fix - it never
+  needed compensating. Shifting `PIVOT_Z` alone pushed `ARM_Z0` below
+  `NUB_Z`, flipping an edge in the outline and making it self-intersect.
+  OpenSCAD rendered this "successfully" with no warning at all (no
+  equivalent to Fusion's profile-count check); Fusion's
+  `build_lever()` caught it immediately with `RuntimeError: Expected 3 lever
+  profiles ... got 4`. **Lesson: a clean OpenSCAD render is not sufficient
+  evidence that a `PIVOT_Z`-adjacent change is safe — check it against a
+  Fusion build too**, since OpenSCAD has no equivalent to the lever
+  sketch's self-intersection check.
+  `PIVOT_Z` is back to 4.60 and the ratio is back to 0.943:1. **The real fix
+  still needs to happen on the `BUTTON_Z`/`HEAD_Z` side** (the side that's
+  actually FRAME_H-anchored and changed relative to the PCB-anchored group,
+  not the PCB-anchored group itself) - not yet attempted. Whatever the fix
+  turns out to be, re-verify against a Fusion build (3 lever profiles), not
+  only an OpenSCAD render, before trusting it.
 - **Bottom-left PCB post** — currently omitted because the debug header's
   footprint isn't confirmed (`PCB_REFERENCE.md` §8, §11). If you measure it off
   the real board, a post can go at
@@ -246,14 +326,45 @@ not to clamp it.** See the derivation rule above for which 4 and why.
   every downstream number improves slightly.
 - **Stand lean** — 18° is a guess, never sat on a desk.
 - **Pi Zero standoffs** — not modelled. Positions depend on the stack.
-- **Fillets and chamfers** — not modelled anywhere in either script. Edge
-  selection by index breaks when dimensions change (Fusion) and there's no
-  equivalent primitive for it in the OpenSCAD CSG model either, so these are
-  meant to be added by hand or in a slicer: R0.4 at the lever arm's thickness
-  step, 0.3 around the nub's bottom face, 1 mm on the frame's outer edges, and
-  a 0.4 mm relief groove around the bottom of each wall pocket. That last one
+- **Fillets and chamfers** — modelled in both scripts on both the frame and
+  the cover, plus a 1.5 mm equal-distance chamfer (`CHAMFER_WINDOW`) around
+  the window's front rim. All reverse-derived from `front.stl`/`back.stl`
+  exports (Fusion's own fillet/chamfer features, applied by hand at some
+  point, then ported back into the scripts) and selected by face/loop/edge
+  geometry in Fusion (`add_box_edge_fillet()`, shared by
+  `build_front_frame()`'s own call and `add_back_cover_finishing()`) rather
+  than edge index, and in OpenSCAD by `rounded_box_bottom_cap()` /
+  `rounded_box_top_cap()` plus the same `chamfered_window()` hull taper — see
+  `impression-7.3/openscad-script.scad` for the derivation comments.
+  Each part's 4 vertical corners are rounded for its FULL height/thickness —
+  `FILLET_OUTER` (2 mm) for the frame, `FILLET_COVER_FACE` (1 mm) for the
+  cover — and ONLY that part's exterior-facing flat face gets an additional
+  fillet blending into it, the same radius: the frame's front (Z=0), the
+  cover's back (Z=CASE_H). The hidden mating face between them — the frame's
+  back (Z=FRAME_H) and the cover's front (Z=FRAME_H) — is left sharp and
+  flush on both parts, not filleted at all. Three earlier passes in this
+  file got this wrong: a uniform fillet on *every* edge of both parts
+  (bulged the cover's corner out to 2 mm at mid-thickness); then a mixed
+  radius on the cover (1 mm face, 2 mm vertical, same bulge); then a uniform
+  1 mm on *every* edge of the cover including the mating face. All three
+  were rejected on sight against the real part — a second fillet on the
+  hidden face reads as a separate bead, not the continuous rounded column
+  the real part has. Don't reintroduce any of them; each part gets exactly
+  one face filleted, matched to its own exterior side.
+  Still left to hand-finishing or a slicer, same reasoning as before (no
+  clean parametric selector for these, and they don't affect fit): R0.4 at
+  the lever arm's thickness step, 0.3 around the nub's bottom face, and a
+  0.4 mm relief groove around the bottom of each wall pocket. That last one
   matters — the nozzle's inside-corner fillet will hold the lever's foot proud
   and change the rest gap.
+- **`front.stl`/`back.stl` predate the border fix** — the copies inspected to
+  reverse the fillet/chamfer numbers above have a display window inset using
+  the *old* `BORDER_BOTTOM`/`BORDER_TOP` (16.00/10.00), not the corrected
+  16.20/10.40 documented above. Their window Y-position (22.0–118.2 at the
+  pocket floor) is therefore ~0.2–0.4 mm off from what the current scripts
+  produce (22.2–117.8). Don't use either file as a dimensional reference
+  without re-exporting from a script run with current parameters — only the
+  fillet/chamfer *shape* was pulled from them, not window position.
 
 ---
 
@@ -272,6 +383,43 @@ not to clamp it.** See the derivation rule above for which 4 and why.
 - **The lever sketch must yield exactly 3 profiles** (anchor, flexure, body) —
   two divider lines fence the flexure off so it can extrude narrower. There's a
   check; if it fires, a dimension edit has made the outline self-intersect.
+- **A fillet feature given more than one of {vertical edges, front loop, back
+  loop} in a box's edge set can fail** with `ASM_BL_CAP_COMPLEX - The
+  fillet/chamfer could not be created at the requested size`, even when
+  every individual radius is well within the part's dimensions, and even
+  when the two loops are 18 mm apart and share no edges. It first broke as
+  one feature for all 12 edges; splitting into two (verticals, then both
+  loops together) broke the exact same way on the second feature. Only three
+  fully independent `filletFeatures.add()` calls — verticals, then the front
+  loop, then the back loop, each its own feature — actually computes; that's
+  what `add_box_edge_fillet()` does. Don't collapse any of these three back
+  together to "clean it up" — that's the exact shape that broke, twice.
+- **Even three separate fillet features isn't enough if the loop being
+  filleted has already been notched by another cut.** The frame's back-face
+  outer loop (Z=FRAME_H) still failed the same `ASM_BL_CAP_COMPLEX` error
+  even alone, because the button slot cut (`gz(SHAFT_Z0 - CLR)` to
+  `FRAME_H + 2.0` in Z, past `gx(WALL_OUT - 1.0)` in X — deliberately past
+  both `FRAME_H` and `CASE_W` so the slot reaches flush to the real
+  boundary) breaks through the back face and the right wall's exterior at
+  each of the 4 button positions before the fillet ever runs, leaving 4
+  notches in what should be a plain rectangle. **Fix: fillet the outer edges
+  of the raw blank immediately after creating it, before any other
+  cut/join**, so the solver only ever sees a plain rectangle; every
+  subsequent feature (button slots, PCB pocket, screw pilots, tongues,
+  bosses, cable exit, etc.) then just cuts or joins into an already-rounded
+  solid, a plain boolean with no fillet math involved. `build_front_frame()`
+  and `build_back_cover()` both call `add_box_edge_fillet()` /
+  `add_back_cover_finishing()` right after `rect_z(...NEW...)` creates the
+  blank, before anything else. (The current design sidesteps this specific
+  failure a second way too, now that only one face per part gets a face
+  fillet at all — see the "Fillets and chamfers" bullet above; the frame's
+  back loop, Z=FRAME_H, is never filleted, notched or not. Keep both fixes
+  in mind if a future change re-adds a fillet on that face.) The window
+  chamfer is the one exception that has to run *last* (`add_window_chamfer()`)
+  since the window loop it
+  chamfers doesn't exist until the window is cut. If you add a new outer-loop
+  fillet anywhere in this file, put it first, not last, or expect this same
+  failure back.
 
 ## OpenSCAD gotchas (`openscad-script.scad` only)
 
